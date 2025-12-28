@@ -13,11 +13,10 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embedded_alloc::Heap;
 use static_cell::StaticCell;
-use wasmtime::{Config as WasmtimeConfig, Engine, Instance, Module, ModuleVersionStrategy, Store};
+use wasmtime::{Config as WasmtimeConfig, Engine, Instance, Module, Store};
 use {defmt_rtt as _, panic_probe as _};
 extern crate alloc;
 use alloc::format;
-use alloc::string::ToString;
 
 static mut TLS_PTR: *mut u8 = core::ptr::null_mut();
 
@@ -110,7 +109,7 @@ async fn main(spawner: Spawner) {
 
     {
         use core::mem::MaybeUninit;
-        const HEAP_SIZE: usize = 250 * 1024;
+        const HEAP_SIZE: usize = 400 * 1024;
         static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
 
         unsafe {
@@ -126,10 +125,6 @@ async fn main(spawner: Spawner) {
     println!("DEBUG: Configuring Wasmtime (FIX APPLIED)...");
     let mut config = WasmtimeConfig::new();
 
-    config.module_version(ModuleVersionStrategy::Custom(alloc::string::String::from(
-        "32.0.0",
-    )));
-
     // 1. Force Pulley Interpreter (32-bit)
     if let Err(_e) = config.target("pulley32") {
         println!("ERROR: Failed to set target to pulley32");
@@ -139,6 +134,7 @@ async fn main(spawner: Spawner) {
     // 2. Disable OS features
     config.signals_based_traps(false);
     config.memory_init_cow(false);
+    config.max_wasm_stack(32 * 1024);
 
     println!("DEBUG: Building Engine...");
 
@@ -155,7 +151,9 @@ async fn main(spawner: Spawner) {
                 Ok(module) => {
                     println!("DEBUG: Module deserialized successfully!");
 
+                    println!("DEBUG: Initializing store...");
                     let mut store = Store::new(&engine, ());
+                    println!("DEBUG: Store initialized");
                     match Instance::new(&mut store, &module, &[]) {
                         Ok(_instance) => {
                             println!("SUCCESS: Interpreter is operational!");

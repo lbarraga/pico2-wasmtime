@@ -1,0 +1,10 @@
+[package]
+name = "compiler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# We use the standard wasmtime on the host to compile
+wasmtime = { version = "40.0.0", features = ["pulley"] }
+wat = "1.0"
+anyhow = "1.0"
