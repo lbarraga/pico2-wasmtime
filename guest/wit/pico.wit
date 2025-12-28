@@ -1,0 +1,18 @@
+package local:demo;
+
+world blinky {
+    import host: interface {
+        // Turns the LED on.
+        on: func();
+
+        // Turns the LED off.
+        off: func();
+
+        // Suspends execution for the specified duration in milliseconds.
+        delay: func(ms: u32);
+    }
+
+    // The entry point for the guest logic.
+    export run: func();
+}
+
