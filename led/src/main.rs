@@ -11,8 +11,30 @@ use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
+use embedded_alloc::Heap;
 use static_cell::StaticCell;
+use wasmtime::{Config as WasmtimeConfig, Engine, Instance, Module, ModuleVersionStrategy, Store};
 use {defmt_rtt as _, panic_probe as _};
+extern crate alloc;
+use alloc::format;
+use alloc::string::ToString;
+
+static mut TLS_PTR: *mut u8 = core::ptr::null_mut();
+
+#[unsafe(no_mangle)]
+pub extern "C" fn wasmtime_tls_get() -> *mut u8 {
+    unsafe { TLS_PTR }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn wasmtime_tls_set(ptr: *mut u8) {
+    unsafe {
+        TLS_PTR = ptr;
+    }
+}
+
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
 
 // --- FIX 1: Define the Timestamp (Required by defmt) ---
 defmt::timestamp!("{=u64:us}", { embassy_time::Instant::now().as_micros() });
@@ -39,7 +61,6 @@ async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, USB>>) -> ! {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-
     // --- USB SETUP ---
     let driver = Driver::new(p.USB, Irqs);
 
@@ -72,26 +93,98 @@ async fn main(spawner: Spawner) {
 
     let mut led = Output::new(p.PIN_13, Level::Low);
 
-    // Wait for USB connection so you don't miss the first messages
+    // Wait for USB connection
     class.wait_connection().await;
 
-    // Macro to print text to the USB Serial
+    // Macro to print text to the USB Serial (with Chunking)
     macro_rules! println {
         ($msg:expr) => {{
-            let _ = class.write_packet($msg.as_bytes()).await;
+            let s = $msg;
+            let bytes = s.as_bytes();
+            for chunk in bytes.chunks(64) {
+                let _ = class.write_packet(chunk).await;
+            }
             let _ = class.write_packet(b"\r\n").await;
         }};
     }
 
+    {
+        use core::mem::MaybeUninit;
+        const HEAP_SIZE: usize = 250 * 1024;
+        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+
+        unsafe {
+            let heap_start = core::ptr::addr_of_mut!(HEAP_MEM) as usize;
+            HEAP.init(heap_start, HEAP_SIZE);
+        }
+    }
+
+    println!("DEBUG: Heap initialized (250KB)");
     println!("USB Serial Initialized!");
+
+    // --- WASMTIME INIT ---
+    println!("DEBUG: Configuring Wasmtime (FIX APPLIED)...");
+    let mut config = WasmtimeConfig::new();
+
+    config.module_version(ModuleVersionStrategy::Custom(alloc::string::String::from(
+        "32.0.0",
+    )));
+
+    // 1. Force Pulley Interpreter (32-bit)
+    if let Err(_e) = config.target("pulley32") {
+        println!("ERROR: Failed to set target to pulley32");
+        panic!("Config error");
+    }
+
+    // 2. Disable OS features
+    config.signals_based_traps(false);
+    config.memory_init_cow(false);
+
+    println!("DEBUG: Building Engine...");
+
+    match Engine::new(&config) {
+        Ok(engine) => {
+            println!("DEBUG: Wasmtime Engine initialized successfully!");
+
+            let smoke_bytes = include_bytes!("smoke.pulley");
+            let size_msg = format!("DEBUG: Bytecode loaded. Size: {} bytes", smoke_bytes.len());
+            println!(size_msg);
+
+            // SAFETY: We trust the bytecode we compiled ourselves.
+            match unsafe { Module::deserialize(&engine, smoke_bytes) } {
+                Ok(module) => {
+                    println!("DEBUG: Module deserialized successfully!");
+
+                    let mut store = Store::new(&engine, ());
+                    match Instance::new(&mut store, &module, &[]) {
+                        Ok(_instance) => {
+                            println!("SUCCESS: Interpreter is operational!");
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Instantiate Error: {:?}", e);
+                            println!(error_msg);
+                        }
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("Deserialize Error: {:?}", e);
+                    println!(error_msg);
+                }
+            }
+        }
+        Err(e) => {
+            let error_msg = format!("Engine Creation Error: {:?}", e);
+            println!(error_msg);
+        }
+    }
+    // --- END WASMTIME INIT ---
+
+    println!("Starting the loop");
 
     loop {
         led.set_high();
-        println!("LED ON");
         Timer::after_millis(500).await;
-
         led.set_low();
-        println!("LED OFF");
         Timer::after_millis(500).await;
     }
 }

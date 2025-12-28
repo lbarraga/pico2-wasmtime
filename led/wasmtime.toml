@@ -1,0 +1,8 @@
+# led/wasmtime.toml
+
+[tunables]
+# The Pico 2 cannot handle OS signals (segfaults) for traps
+signals_based_traps = false
+
+# The Pico 2 does not support Copy-on-Write memory
+memory_init_cow = false
