@@ -118,7 +118,7 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    println!("DEBUG: Heap initialized (250KB)");
+    println!("DEBUG: Heap initialized (400KB)");
     println!("USB Serial Initialized!");
 
     // --- WASMTIME INIT ---
@@ -155,8 +155,33 @@ async fn main(spawner: Spawner) {
                     let mut store = Store::new(&engine, ());
                     println!("DEBUG: Store initialized");
                     match Instance::new(&mut store, &module, &[]) {
-                        Ok(_instance) => {
+                        Ok(instance) => {
                             println!("SUCCESS: Interpreter is operational!");
+
+                            // --- NEW: Call the 'add' function ---
+                            println!("DEBUG: Attempting to call 'add(10, 25)'...");
+
+                            // 1. Look up the export "add" with the expected signature (i32, i32) -> i32
+                            match instance.get_typed_func::<(i32, i32), i32>(&mut store, "add") {
+                                Ok(add_func) => {
+                                    // 2. Call the function
+                                    match add_func.call(&mut store, (10, 25)) {
+                                        Ok(result) => {
+                                            let msg = format!("RESULT: 10 + 25 = {}", result);
+                                            println!(msg);
+                                        }
+                                        Err(e) => {
+                                            let msg = format!("Runtime Error: {:?}", e);
+                                            println!(msg);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    let msg = format!("Export Lookup Error: {:?}", e);
+                                    println!(msg);
+                                }
+                            }
+                            // --- END NEW CODE ---
                         }
                         Err(e) => {
                             let error_msg = format!("Instantiate Error: {:?}", e);
