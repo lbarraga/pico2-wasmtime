@@ -32,6 +32,8 @@
             pkgs.picotool # Official Pico utility (optional but good)
             pkgs.flip-link # Linker optimizer (standard in embedded rust)
             pkgs.cargo-generate
+            pkgs.wasmtime
+            pkgs.wasm-tools
           ];
         };
       });
