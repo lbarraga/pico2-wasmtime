@@ -8,8 +8,6 @@ members = [
 ]
 
 [profile.release]
-opt-level = "z"      # Optimize for size
-lto = true           # Link Time Optimization
-codegen-units = 1    # Better optimization
-panic = "abort"      # Remove panic unwinding
-strip = "debuginfo"  # KEEP symbols for defmt, but strip other debug info
+debug = 2            # Essential for stepping and backtraces
+opt-level = "z"
+strip = "none"       # Do not strip symbols
