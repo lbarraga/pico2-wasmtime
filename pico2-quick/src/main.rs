@@ -115,6 +115,7 @@ async fn main(_spawner: Spawner) {
     config.memory_reservation(0);
     // Reduced stack to save RAM
     config.max_wasm_stack(8 * 1024);
+    config.memory_reservation_for_growth(0);
 
     let engine = Engine::new(&config).expect("Engine failed");
 
