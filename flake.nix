@@ -22,6 +22,7 @@
             "thumbv8m.main-none-eabihf"
             "wasm32-unknown-unknown"
             "wasm32-wasip1"
+            "wasm32-wasip2"
           ];
           extensions = [ "rust-src" "clippy" "llvm-tools-preview" ];
         };
