@@ -3,9 +3,7 @@
 
 extern crate alloc;
 
-use core::alloc::{GlobalAlloc, Layout};
-use core::sync::atomic::{AtomicUsize, Ordering};
-use defmt::{error, info};
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embedded_alloc::Heap;
@@ -14,49 +12,9 @@ use {defmt_rtt as _, panic_probe as _};
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, Store};
 
-// --- 1. Logging Wrapper Allocator ---
-struct LoggingAllocator {
-    inner: Heap,
-    used: AtomicUsize,
-}
-
-impl LoggingAllocator {
-    const fn empty() -> Self {
-        Self {
-            inner: Heap::empty(),
-            used: AtomicUsize::new(0),
-        }
-    }
-
-    unsafe fn init(&self, start: usize, size: usize) {
-        self.inner.init(start, size);
-    }
-}
-
-unsafe impl GlobalAlloc for LoggingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = self.inner.alloc(layout);
-        if !ptr.is_null() {
-            let prev = self.used.fetch_add(layout.size(), Ordering::SeqCst);
-            // Log: [A]llocation size | Total [U]sed
-            info!("[A] {} [U] {}", layout.size(), prev + layout.size());
-        } else {
-            error!("ALLOCATION FAILED: size {}", layout.size());
-        }
-        ptr
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        self.inner.dealloc(ptr, layout);
-        let prev = self.used.fetch_sub(layout.size(), Ordering::SeqCst);
-        info!("[D] {} [U] {}", layout.size(), prev - layout.size());
-    }
-}
-
 #[global_allocator]
-static ALLOCATOR: LoggingAllocator = LoggingAllocator::empty();
+static ALLOCATOR: Heap = Heap::empty();
 
-// --- 2. Bindings & Host State ---
 wasmtime::component::bindgen!({
     path: "../guest/wit/pico.wit",
     world: "blinky",
@@ -100,7 +58,7 @@ async fn main(_spawner: Spawner) {
     // Initialize Heap
     {
         use core::mem::MaybeUninit;
-        const HEAP_SIZE: usize = 440 * 1024; // Increased to 440KB
+        const HEAP_SIZE: usize = 440 * 1024; // 440KB
         static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
         unsafe { ALLOCATOR.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) }
     }
@@ -109,12 +67,17 @@ async fn main(_spawner: Spawner) {
 
     let mut config = Config::new();
     config.target("pulley32").unwrap();
+
+    config.wasm_component_model(true);
+    config.gc_support(false);
+
     config.signals_based_traps(false);
     config.memory_init_cow(false);
     config.memory_guard_size(0);
     config.memory_reservation(0);
-    // Reduced stack to save RAM
-    config.max_wasm_stack(8 * 1024);
+
+    config.max_wasm_stack(32 * 1024);
+
     config.memory_reservation_for_growth(0);
 
     let engine = Engine::new(&config).expect("Engine failed");
