@@ -35,16 +35,6 @@ fn main() -> anyhow::Result<()> {
 
     let engine = Engine::new(&config)?;
 
-    // 2. Input Path (Strict: No guessing)
-    // The workspace puts artifacts in the root target folder
-
-    if !input_path.exists() {
-        anyhow::bail!(
-             "Input file not found at: {:?}\nDid you run 'cargo component build -p guest --release --target wasm32-unknown-unknown'?", 
-             input_path
-         );
-    }
-
     println!("Reading component from: {:?}", input_path);
     let wasm_bytes = fs::read(input_path)?;
 
