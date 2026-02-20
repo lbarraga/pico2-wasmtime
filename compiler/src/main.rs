@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::{env, fs};
 use wasmtime::{Config, Engine};
+use wit_component::ComponentEncoder;
 
 fn main() -> anyhow::Result<()> {
     println!("Compiling guest for Pulley...");
@@ -47,8 +48,14 @@ fn main() -> anyhow::Result<()> {
     println!("Reading component from: {:?}", input_path);
     let wasm_bytes = fs::read(input_path)?;
 
+    println!("Componentizing module...");
+    let component_bytes = ComponentEncoder::default()
+        .validate(true)
+        .module(&wasm_bytes)?
+        .encode()?;
+
     // 3. Precompile
-    let serialized = engine.precompile_component(&wasm_bytes)?;
+    let serialized = engine.precompile_component(&component_bytes)?;
 
     // 4. Output
     let output_path = Path::new("pico2-quick/src/guest.pulley");

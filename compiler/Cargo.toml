@@ -7,3 +7,4 @@ edition = "2021"
 # Must match the version in pico2-quick exactly
 wasmtime = { version = "41.0.1", features = ["component-model", "pulley"] }
 anyhow = "1.0"
+wit-component = "0.245.1"
