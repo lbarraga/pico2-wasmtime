@@ -1,8 +1,14 @@
 use wit_bindgen::generate;
 
 generate!({
-    world: "blinky",
+    path: "wit", // Path relative to the guest crate
+    world: "sos",
+    with: {
+        "wasi:blinky/blinky": generate,
+    }
 });
+
+use wasi::blinky::blinky as host;
 
 struct MyGuest;
 

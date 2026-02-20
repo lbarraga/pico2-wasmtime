@@ -9,32 +9,28 @@ use embassy_rp::gpio::{Level, Output};
 use embedded_alloc::Heap;
 use {defmt_rtt as _, panic_probe as _};
 
-use wasmtime::component::{Component, HasSelf, Linker};
+use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
+
+mod blinky_lib;
+use blinky_lib::{BlinkyCtx, BlinkyView};
+
+// 1. Point to the Guest's WIT folder and use the "sos" world
+wasmtime::component::bindgen!({
+    path: "../guest/wit",
+    world: "sos",
+});
 
 #[global_allocator]
 static ALLOCATOR: Heap = Heap::empty();
 
-wasmtime::component::bindgen!({
-    path: "../guest/wit/pico.wit",
-    world: "blinky",
-});
-
 pub struct HostState {
-    pub led: Output<'static>,
+    pub blinky_ctx: BlinkyCtx,
 }
 
-impl host::Host for HostState {
-    fn on(&mut self) {
-        self.led.set_high();
-        info!("Guest: ON");
-    }
-    fn off(&mut self) {
-        self.led.set_low();
-        info!("Guest: OFF");
-    }
-    fn delay(&mut self, ms: u32) {
-        embassy_time::block_for(embassy_time::Duration::from_millis(ms as u64));
+impl BlinkyView for HostState {
+    fn blinky_ctx(&mut self) -> &mut BlinkyCtx {
+        &mut self.blinky_ctx
     }
 }
 
@@ -67,37 +63,35 @@ async fn main(_spawner: Spawner) {
 
     let mut config = Config::new();
     config.target("pulley32").unwrap();
-
     config.wasm_component_model(true);
     config.gc_support(false);
-
     config.signals_based_traps(false);
     config.memory_init_cow(false);
     config.memory_guard_size(0);
     config.memory_reservation(0);
-
     config.max_wasm_stack(32 * 1024);
-
     config.memory_reservation_for_growth(0);
 
     let engine = Engine::new(&config).expect("Engine failed");
 
     let led = Output::new(p.PIN_15, Level::Low);
-    let mut store = Store::new(&engine, HostState { led });
+    let blinky_ctx = BlinkyCtx { led };
+    let mut store = Store::new(&engine, HostState { blinky_ctx });
+
     let mut linker = Linker::new(&engine);
 
-    Blinky::add_to_linker::<HostState, HasSelf<HostState>>(&mut linker, |state: &mut HostState| {
-        state
-    })
-    .unwrap();
+    // 2. Link the library as before
+    blinky_lib::add_to_linker(&mut linker).unwrap();
 
     let guest_bytes = include_bytes!("guest.pulley");
-    info!("Step 6: Deserializing component...");
+    info!("Deserializing component...");
     let component = unsafe { Component::deserialize(&engine, guest_bytes) }.unwrap();
 
-    info!("Step 7: Instantiating...");
-    let blinky = Blinky::instantiate(&mut store, &component, &linker).unwrap();
+    info!("Instantiating...");
+    // 3. Instantiate the component using the `Sos` struct from your `my:sos` world
+    let app = Sos::instantiate(&mut store, &component, &linker).unwrap();
 
     info!("Starting guest...");
-    blinky.call_run(&mut store).unwrap();
+    // 4. Call the exported `run` function on the `Sos` instance
+    app.call_run(&mut store).unwrap();
 }
